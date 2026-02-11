@@ -17,6 +17,8 @@ BRASIL_TIMEZONE = timezone(timedelta(hours=-3))
 # Cache da última leitura
 last_read_time = None
 cached_data = None
+if "time_versions" not in st.session_state:
+    st.session_state.time_versions = {}
 
 
 @st.cache_resource
@@ -97,11 +99,13 @@ def save_data(df):
                     pass
                 else:
                     df_to_save[col] = df_to_save[col].apply(
-                        lambda x: x.strftime("%H:%M")
-                        if isinstance(x, time) and pd.notnull(x)
-                        else x
-                        if pd.notnull(x)
-                        else ""
+                        lambda x: (
+                            x.strftime("%H:%M")
+                            if isinstance(x, time) and pd.notnull(x)
+                            else x
+                            if pd.notnull(x)
+                            else ""
+                        )
                     )
 
         df_to_save = df_to_save.fillna("")
@@ -358,6 +362,9 @@ with st.sidebar:
     if st.button("🗑️ Limpar todos os horários", use_container_width=True):
         for idx in range(len(st.session_state.dados_locais)):
             st.session_state.dados_locais.at[idx, "Nasce às"] = None
+            st.session_state.time_versions[idx] = (
+                st.session_state.time_versions.get(idx, 0) + 1
+            )
         st.rerun()
 
     if st.button("🔄 Recarregar do Google", use_container_width=True):
@@ -431,6 +438,7 @@ for i in range(0, len(mobs_data), mobs_por_linha):
         if mob_index < len(mobs_data):
             mob = mobs_data[mob_index]
             idx = mob["index"]
+            version = st.session_state.time_versions.get(idx, 0)
 
             with col:
                 # Dados do mob
@@ -496,7 +504,7 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                     novo_horario = st.time_input(
                         "Morreu às",
                         value=horario_atual,
-                        key=f"time_{idx}",
+                        key=f"time_input_{idx}_{version}",
                         label_visibility="collapsed",
                         step=60,
                         help="Horário da morte (GMT 0 do jogo)",
@@ -514,6 +522,9 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                         use_container_width=True,
                     ):
                         st.session_state.dados_locais.at[idx, "Nasce às"] = None
+                        st.session_state.time_versions[idx] = (
+                            st.session_state.time_versions.get(idx, 0) + 1
+                        )
                         st.rerun()
 
 # Rodapé com estatísticas
