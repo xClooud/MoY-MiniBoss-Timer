@@ -423,7 +423,9 @@ for idx, row in st.session_state.dados_locais.iterrows():
 # Ordenar por tempo de respawn (mais próximo primeiro, depois os vivos no final)
 mobs_nao_vivos = [m for m in mobs_data if m["segundos_restantes"] > 0]
 mobs_vivos = [m for m in mobs_data if m["segundos_restantes"] <= 0]
+mobs_nao_vivos.sort(key=lambda x: x["Mob"])
 mobs_nao_vivos.sort(key=lambda x: x["segundos_restantes"])
+mobs_vivos.sort(key=lambda x: x["Mob"])
 mobs_data = mobs_vivos + mobs_nao_vivos
 
 # Layout responsivo com 4 colunas
