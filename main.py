@@ -323,6 +323,26 @@ st.markdown(
         margin-top: 8px;
         width: 100%;
     }
+    div.stButton > button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        /* Ajuste específico para botões com apenas ícone (sem texto) */
+        div.stButton > button > div {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Remove qualquer padding extra que desalinhe */
+        div.stButton > button > div > p {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1;
+        }
 </style>
 """,
     unsafe_allow_html=True,
@@ -499,7 +519,7 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                 st.markdown(card_html, unsafe_allow_html=True)
 
                 # Controles abaixo do card (fora do HTML)
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([2, 1, 1])
 
                 with col1:
                     horario_atual = nasce_as if nasce_as else time(0, 0)
@@ -517,6 +537,23 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                         st.rerun()
 
                 with col2:
+                    if st.button(
+                        "⏱️",  # ícone de relógio
+                        key=f"now_{idx}_{version}",  # usa versão para evitar conflitos
+                        help="Definir horário de morte para AGORA (GMT 0)",
+                        use_container_width=True,
+                    ):
+                        # Obtém a hora atual em GMT 0 (UTC)
+                        agora_utc = datetime.now(timezone.utc).time()
+                        st.session_state.dados_locais.at[idx, "Nasce às"] = agora_utc
+
+                        # Incrementa a versão para forçar o time_input a exibir o novo valor
+                        st.session_state.time_versions[idx] = (
+                            st.session_state.time_versions.get(idx, 0) + 1
+                        )
+                        st.rerun()
+
+                with col3:
                     if st.button(
                         "🗑️",
                         key=f"clear_{idx}",
