@@ -26,5 +26,10 @@ def VariableCast(base, reducaoFlat, reducaoPercent, int, dex):
     return max(vctFinal, 0)
 
 
-print(VariableCast(3, 0.18, 80, 124, 99))
-print(VariableCast(3, 0.2, 75, 133, 107))
+def BlitzBeat(baseDmg, skillLvl, baseLvl):
+    dmg = 100 + (skillLvl * 30) + (baseLvl * 3)
+    dmg = baseDmg * (dmg / 100)
+    return dmg
+
+
+print(BlitzBeat(187, 10, 100))
