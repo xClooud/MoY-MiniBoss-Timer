@@ -15,7 +15,7 @@ st.title("📋 Planilha de Drops")
 # -------------------------------
 # Constantes da planilha
 # -------------------------------
-SHEET_ID = "1SexionFdVhEIKnnKkh42VF2yK6End8eSu0Dnpdba7DY"
+SHEET_ID = "1aQvZ2BCKpnTmWm8aagzUXRvqztAwpYmXBbAqXVZ9xhk"
 WORKSHEET_NAME = "Drops"
 COLUMNS = ["Drop", "Data", "Membros", "Pago"]
 
