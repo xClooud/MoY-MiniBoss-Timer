@@ -86,7 +86,9 @@ def save_data(df):
     df_to_save = df.copy()
 
     # 🔥 conversões seguras
-    df_to_save["Data"] = df_to_save["Data"].astype(str)
+    df_to_save["Data"] = df_to_save["Data"].apply(
+    lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else ""
+)
     df_to_save["Pago"] = df_to_save["Pago"].astype(str)
 
     valores = [COLUMNS] + df_to_save.values.tolist()
