@@ -13,12 +13,12 @@ WORKSHEET_NAME = "Minis"
 
 BRASIL_TIMEZONE = timezone(timedelta(hours=-3))
 
-# CACHE
+# CACHE GLOBAL
 cached_data = None
 last_read_time = None
 
 
-# 🔥 AUTH
+# 🔥 AUTENTICAÇÃO
 @st.cache_resource
 def get_google_sheets_client():
     info = json.loads(st.secrets["gcp_service_account"]["json"])
@@ -34,7 +34,7 @@ def get_google_sheets_client():
     return gspread.authorize(credentials)
 
 
-# 🔥 CREATE SHEET
+# 🔥 CRIA ABA AUTOMATICAMENTE
 def get_or_create_worksheet(sh, worksheet_name):
     abas = [ws.title for ws in sh.worksheets()]
 
@@ -47,12 +47,13 @@ def get_or_create_worksheet(sh, worksheet_name):
     return worksheet
 
 
-# 🔥 LOAD
+# 🔥 LOAD DATA
 def load_data(force_reload=False):
     global last_read_time, cached_data
 
     if not force_reload and cached_data is not None and last_read_time:
-        if (datetime.now() - last_read_time).total_seconds() < 300:
+        time_since_last_read = (datetime.now() - last_read_time).total_seconds()
+        if time_since_last_read < 300:
             return cached_data
 
     try:
@@ -63,28 +64,35 @@ def load_data(force_reload=False):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
 
+        if df.empty:
+            return pd.DataFrame()
+
         time_columns = ["Nasce às", "Timer", "Prox."]
 
         for col in time_columns:
             if col in df.columns:
-                df[col] = df[col].replace(
-                    ["", "None", "null", "Null", "NONE"], None
-                )
+                df[col] = df[col].replace(["", "None", "null", "Null", "NONE"], None)
 
-                def convert(x):
-                    if pd.isna(x):
+                def convert_to_time(x):
+                    if pd.isna(x) or x is None:
                         return None
                     try:
-                        if isinstance(x, str) and ":" in x:
-                            h, m = map(int, x.split(":")[:2])
-                            return time(h, m)
+                        if isinstance(x, str):
+                            x = x.strip()
+                            if ":" in x:
+                                parts = x.split(":")
+                                if len(parts) >= 2:
+                                    hour = int(parts[0])
+                                    minute = int(parts[1])
+                                    if 0 <= hour < 24 and 0 <= minute < 60:
+                                        return time(hour, minute)
                         elif isinstance(x, datetime):
                             return x.time()
                     except:
                         return None
                     return None
 
-                df[col] = df[col].apply(convert)
+                df[col] = df[col].apply(convert_to_time)
 
         cached_data = df
         last_read_time = datetime.now()
@@ -95,7 +103,7 @@ def load_data(force_reload=False):
         return pd.DataFrame()
 
 
-# 🔥 SAVE
+# 🔥 SAVE DATA
 def save_data(df):
     try:
         gc = get_google_sheets_client()
@@ -103,13 +111,16 @@ def save_data(df):
         worksheet = get_or_create_worksheet(sh, WORKSHEET_NAME)
 
         df_to_save = df.copy()
+        time_columns = ["Nasce às", "Timer", "Prox."]
 
-        for col in ["Nasce às", "Timer", "Prox."]:
+        for col in time_columns:
             if col in df_to_save.columns:
                 df_to_save[col] = df_to_save[col].apply(
-                    lambda x: x.strftime("%H:%M")
-                    if isinstance(x, time)
-                    else (x if pd.notnull(x) else "")
+                    lambda x: (
+                        x.strftime("%H:%M")
+                        if isinstance(x, time) and pd.notnull(x)
+                        else x if pd.notnull(x) else ""
+                    )
                 )
 
         df_to_save = df_to_save.fillna("")
@@ -117,7 +128,11 @@ def save_data(df):
 
         worksheet.update(data, value_input_option="USER_ENTERED")
 
-        st.success("✅ Salvo!")
+        st.success("✅ Alterações salvas com sucesso!")
+
+        global cached_data
+        cached_data = df.copy()
+
         return True
 
     except Exception as e:
@@ -125,117 +140,99 @@ def save_data(df):
         return False
 
 
-# 🔥 CALCULOS
+# 🔥 CÁLCULOS
 def calcular_segundos_restantes(nasce_as):
-    if not isinstance(nasce_as, time):
+    if not nasce_as or not isinstance(nasce_as, time):
         return 10800
 
     try:
         agora_utc = datetime.now(timezone.utc)
         agora_local = datetime.now(BRASIL_TIMEZONE)
 
-        morte = datetime.combine(agora_utc.date(), nasce_as).replace(
+        morte_gmt0 = datetime.combine(agora_utc.date(), nasce_as).replace(
             tzinfo=timezone.utc
         )
 
-        if morte > agora_utc:
-            morte -= timedelta(days=1)
+        if morte_gmt0 > agora_utc:
+            morte_gmt0 -= timedelta(days=1)
 
-        respawn = morte + timedelta(hours=3)
-        respawn_local = respawn.astimezone(BRASIL_TIMEZONE)
+        respawn_gmt0 = morte_gmt0 + timedelta(hours=3)
+        respawn_local = respawn_gmt0.astimezone(BRASIL_TIMEZONE)
 
         segundos = int((respawn_local - agora_local).total_seconds())
-        return max(segundos, 0)
+        return segundos if segundos > 0 else 0
 
     except:
         return 10800
 
 
 def calcular_tempo_restante_ajustado(nasce_as):
-    s = calcular_segundos_restantes(nasce_as)
-    if s <= 0:
+    segundos = calcular_segundos_restantes(nasce_as)
+
+    if segundos <= 0:
         return "VIVO"
-    return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
+
+    horas = segundos // 3600
+    minutos = (segundos % 3600) // 60
+    segundos_rest = segundos % 60
+
+    return f"{horas:02d}:{minutos:02d}:{segundos_rest:02d}"
 
 
 def calcular_horario_respawn_local(nasce_as):
-    if not isinstance(nasce_as, time):
+    if not nasce_as or not isinstance(nasce_as, time):
         return "--:--"
 
     try:
         agora_utc = datetime.now(timezone.utc)
 
-        morte = datetime.combine(agora_utc.date(), nasce_as).replace(
+        morte_gmt0 = datetime.combine(agora_utc.date(), nasce_as).replace(
             tzinfo=timezone.utc
         )
 
-        if morte > agora_utc:
-            morte -= timedelta(days=1)
+        if morte_gmt0 > agora_utc:
+            morte_gmt0 -= timedelta(days=1)
 
-        respawn = morte + timedelta(hours=3)
-        return respawn.astimezone(BRASIL_TIMEZONE).strftime("%H:%M")
+        respawn_gmt0 = morte_gmt0 + timedelta(hours=3)
+        respawn_local = respawn_gmt0.astimezone(BRASIL_TIMEZONE)
+
+        return respawn_local.strftime("%H:%M")
 
     except:
         return "--:--"
 
 
 # UI
-st.set_page_config(page_title="Mini-Boss Timer", layout="wide")
+st.set_page_config(page_title="Mini-Boss Timer - Myth of Yggdrasil", layout="wide")
 st.title("Mini-Boss Timer :blue[MoY]")
+st.divider()
 
-# INIT
+# INIT SESSION
 if "dados_locais" not in st.session_state:
     st.session_state.dados_locais = load_data()
 
 if "time_versions" not in st.session_state:
     st.session_state.time_versions = {}
 
-# SIDEBAR
+# 🔥 AUTO UPDATE CONFIG
 with st.sidebar:
-    update = st.radio(
-        "Atualização",
-        ["Off", "1s", "5s", "30s"],
+    update_options = st.radio(
+        "Atualização automática",
+        ["Desligado", "1 segundo", "5 segundos", "30 segundos"],
         index=0,
     )
 
-    interval = {"Off": 0, "1s": 1, "5s": 5, "30s": 30}[update]
+    update_interval = {
+        "Desligado": 0,
+        "1 segundo": 1,
+        "5 segundos": 5,
+        "30 segundos": 30,
+    }[update_options]
 
-    if st.button("💾 Salvar"):
-        save_data(st.session_state.dados_locais)
-        st.rerun()
+# 🔥 AUTO REFRESH (CORRIGIDO)
+if update_interval > 0:
+    next_update = datetime.now() + timedelta(seconds=update_interval)
+    st.caption(f"⏰ Próxima atualização: {next_update.strftime('%H:%M:%S')}")
 
-# GRID
-mobs = []
-for idx, row in st.session_state.dados_locais.iterrows():
-    mob = row.to_dict()
-    mob["index"] = idx
-    mob["segundos"] = calcular_segundos_restantes(mob.get("Nasce às"))
-    mobs.append(mob)
-
-mobs.sort(key=lambda x: x["segundos"])
-
-cols = st.columns(6)
-
-for i, mob in enumerate(mobs):
-    with cols[i % 6]:
-        idx = mob["index"]
-        nome = mob.get("Mob", "")
-        nasce = mob.get("Nasce às")
-
-        st.markdown(f"**{nome}**")
-        st.markdown(calcular_tempo_restante_ajustado(nasce))
-
-        novo = st.time_input(
-            "Hora",
-            value=nasce if nasce else time(0, 0),
-            key=f"{idx}_{st.session_state.time_versions.get(idx,0)}",
-        )
-
-        if novo != nasce:
-            st.session_state.dados_locais.at[idx, "Nasce às"] = novo
-            st.rerun()
-
-# 🔥 AUTO REFRESH CORRIGIDO
-if interval > 0:
-    time_module.sleep(interval)
+    time_module.sleep(update_interval)
     st.rerun()
