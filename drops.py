@@ -13,71 +13,95 @@ st.set_page_config(page_title="Planilha de Drops - Google Sheets", layout="wide"
 st.title("📋 Planilha de Drops")
 
 # -------------------------------
-# Constantes da planilha
+# Constantes
 # -------------------------------
 SHEET_ID = "15l7nHq5TmaU-IMQb9T-C07TLaogAEhbM-3GOQGikmkY"
 WORKSHEET_NAME = "Drops"
 COLUMNS = ["Drop", "Data", "Membros", "Pago"]
 
-
 # -------------------------------
-# Função de conexão com Google Sheets
+# Conexão com Google Sheets
 # -------------------------------
 @st.cache_resource
-def get_sheet():
-    """Autentica e retorna a worksheet (aba) do Google Sheets."""
-    try:
-        # 🔥 Lê o JSON como string e converte para dict
-        info = json.loads(st.secrets["gcp_service_account"]["json"])
+def get_client():
+    info = json.loads(st.secrets["gcp_service_account"]["json"])
 
-        creds = Credentials.from_service_account_info(
-            info,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
+    creds = Credentials.from_service_account_info(
+        info,
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
 
-    except Exception as e:
-        st.error(f"Erro ao carregar credenciais: {e}")
-        raise
-
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
-    return sheet
+    return gspread.authorize(creds)
 
 
+def get_or_create_worksheet():
+    client = get_client()
+    sh = client.open_by_key(SHEET_ID)
+
+    abas = [ws.title for ws in sh.worksheets()]
+
+    if WORKSHEET_NAME not in abas:
+        worksheet = sh.add_worksheet(title=WORKSHEET_NAME, rows="100", cols="20")
+        worksheet.append_row(COLUMNS)
+        st.warning(f"Aba '{WORKSHEET_NAME}' criada automaticamente!")
+    else:
+        worksheet = sh.worksheet(WORKSHEET_NAME)
+
+        # 🔥 garante cabeçalho
+        values = worksheet.get_all_values()
+        if not values:
+            worksheet.append_row(COLUMNS)
+
+    return worksheet
+
+
+# -------------------------------
+# DATA
+# -------------------------------
 def load_data():
-    """Carrega os dados da planilha para um DataFrame."""
-    sheet = get_sheet()
+    sheet = get_or_create_worksheet()
+
     records = sheet.get_all_records()
     if not records:
         return pd.DataFrame(columns=COLUMNS)
+
     df = pd.DataFrame(records)
-    # Garantir tipos
-    df["Data"] = pd.to_datetime(df["Data"]).dt.date
-    df["Pago"] = df["Pago"].astype(bool)
+
+    # 🔥 segurança de tipos
+    if "Data" in df.columns:
+        df["Data"] = pd.to_datetime(df["Data"], errors="coerce").dt.date
+
+    if "Pago" in df.columns:
+        df["Pago"] = df["Pago"].astype(str).str.lower().isin(["true", "1", "yes"])
+
     return df
 
 
 def save_data(df):
-    """Substitui todo o conteúdo da planilha pelos dados do DataFrame."""
-    sheet = get_sheet()
-    # Prepara os dados: converter data para string ISO e bool para string
-    data_to_save = df.copy()
-    data_to_save["Data"] = data_to_save["Data"].astype(str)
-    data_to_save["Pago"] = data_to_save["Pago"].astype(str)
-    # Converte para lista de listas (incluindo cabeçalho)
-    valores = [COLUMNS] + data_to_save.values.tolist()
+    sheet = get_or_create_worksheet()
+
+    df_to_save = df.copy()
+
+    # 🔥 conversões seguras
+    df_to_save["Data"] = df_to_save["Data"].astype(str)
+    df_to_save["Pago"] = df_to_save["Pago"].astype(str)
+
+    valores = [COLUMNS] + df_to_save.values.tolist()
+
     sheet.clear()
-    sheet.update(range_name="A1", values=valores, value_input_option="USER_ENTERED")
+    sheet.update("A1", valores, value_input_option="USER_ENTERED")
 
 
+# -------------------------------
+# UTILS
+# -------------------------------
 def get_all_members(df):
-    """Extrai todos os membros únicos da coluna Membros."""
     members = set()
     for membros_str in df["Membros"].dropna():
-        for m in membros_str.split(","):
+        for m in str(membros_str).split(","):
             m = m.strip()
             if m:
                 members.add(m)
@@ -85,19 +109,18 @@ def get_all_members(df):
 
 
 def filter_by_members(df, selected_members):
-    """Filtra linhas onde pelo menos um membro selecionado está presente."""
     if not selected_members:
         return df
-    mask = df["Membros"].apply(
-        lambda x: (
-            any(m in x.split(",") for m in selected_members) if pd.notna(x) else False
+
+    return df[
+        df["Membros"].apply(
+            lambda x: any(m in str(x).split(",") for m in selected_members)
         )
-    )
-    return df[mask]
+    ]
 
 
 # -------------------------------
-# Carregar dados iniciais
+# LOAD INICIAL
 # -------------------------------
 if "df" not in st.session_state:
     try:
@@ -107,105 +130,79 @@ if "df" not in st.session_state:
         st.stop()
 
 # -------------------------------
-# Formulário de inserção
+# FORM
 # -------------------------------
-with st.expander("➕ Inserir novo drop", expanded=False):
-    with st.form("inserir_drop"):
+with st.expander("➕ Inserir novo drop"):
+    with st.form("form"):
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            drop_name = st.text_input("Drop *", key="new_drop")
-        with col2:
-            data = st.date_input("Data *", value=datetime.today(), key="new_data")
-        with col3:
-            membros_str = st.text_input(
-                "Membros (separados por vírgula) *",
-                placeholder="ex: Godz, Avril, Gu",
-                key="new_membros",
-            )
-        with col4:
-            pago = st.checkbox("Pago?", key="new_pago")
 
-        submitted = st.form_submit_button("Salvar")
-        if submitted:
-            if not drop_name or not membros_str:
-                st.error("Os campos Drop e Membros são obrigatórios.")
+        drop = col1.text_input("Drop *")
+        data = col2.date_input("Data *", value=datetime.today())
+        membros = col3.text_input("Membros * (separados por vírgula)")
+        pago = col4.checkbox("Pago")
+
+        if st.form_submit_button("Salvar"):
+            if not drop or not membros:
+                st.error("Preencha os campos obrigatórios.")
             else:
-                nova_linha = pd.DataFrame(
-                    [
-                        {
-                            "Drop": drop_name,
-                            "Data": data,
-                            "Membros": membros_str,
-                            "Pago": pago,
-                        }
-                    ]
+                nova = pd.DataFrame(
+                    [[drop, data, membros, pago]], columns=COLUMNS
                 )
                 st.session_state.df = pd.concat(
-                    [st.session_state.df, nova_linha], ignore_index=True
+                    [st.session_state.df, nova], ignore_index=True
                 )
                 save_data(st.session_state.df)
-                st.success("Drop adicionado com sucesso!")
+                st.success("Salvo!")
                 st.rerun()
 
 # -------------------------------
-# Filtros
+# FILTROS
 # -------------------------------
-st.subheader("🔍 Visualizar e filtrar dados")
+st.subheader("🔍 Filtros")
+
 if st.session_state.df.empty:
-    st.info("Nenhum dado ainda. Use o formulário acima para adicionar drops.")
+    st.info("Sem dados ainda.")
     st.stop()
 
 all_drops = sorted(st.session_state.df["Drop"].dropna().unique())
 all_members = get_all_members(st.session_state.df)
 
-col_f1, col_f2 = st.columns(2)
-with col_f1:
-    selected_drops = st.multiselect(
-        "Filtrar por Drop", options=all_drops, key="filter_drop"
-    )
-with col_f2:
-    selected_members_filter = st.multiselect(
-        "Filtrar por Membro", options=all_members, key="filter_member"
-    )
+col1, col2 = st.columns(2)
+selected_drops = col1.multiselect("Drop", all_drops)
+selected_members = col2.multiselect("Membros", all_members)
 
-# Aplicar filtros
 df_filtered = st.session_state.df.copy()
+
 if selected_drops:
     df_filtered = df_filtered[df_filtered["Drop"].isin(selected_drops)]
-if selected_members_filter:
-    df_filtered = filter_by_members(df_filtered, selected_members_filter)
 
-# Ordenar por Data (mais antiga primeiro)
-df_filtered = df_filtered.sort_values(by="Data", ascending=True)
+if selected_members:
+    df_filtered = filter_by_members(df_filtered, selected_members)
+
+df_filtered = df_filtered.sort_values(by="Data")
 
 # -------------------------------
-# Exibição da tabela editável (apenas Pago)
+# TABELA
 # -------------------------------
-st.markdown("### Tabela de drops")
-
-column_config = {
-    "Drop": st.column_config.TextColumn("Drop", disabled=True),
-    "Data": st.column_config.DateColumn("Data", disabled=True),
-    "Membros": st.column_config.TextColumn("Membros", disabled=True),
-    "Pago": st.column_config.CheckboxColumn("Pago", disabled=False),
-}
+st.markdown("### Tabela")
 
 edited_df = st.data_editor(
     df_filtered,
-    column_config=column_config,
+    column_config={
+        "Drop": st.column_config.TextColumn(disabled=True),
+        "Data": st.column_config.DateColumn(disabled=True),
+        "Membros": st.column_config.TextColumn(disabled=True),
+        "Pago": st.column_config.CheckboxColumn(),
+    },
     use_container_width=True,
     hide_index=True,
-    key="data_editor",
 )
 
-col_save1, col_save2 = st.columns([1, 5])
-with col_save1:
-    if st.button("💾 Salvar alterações na coluna Pago"):
-        # Atualizar os valores de Pago no DataFrame original
-        for idx in edited_df.index:
-            original_idx = df_filtered.index[idx]
-            if original_idx in st.session_state.df.index:
-                st.session_state.df.at[original_idx, "Pago"] = edited_df.at[idx, "Pago"]
-        save_data(st.session_state.df)
-        st.success("Alterações salvas no Google Sheets!")
-        st.rerun()
+if st.button("💾 Salvar alterações"):
+    for idx in edited_df.index:
+        original_idx = df_filtered.index[idx]
+        st.session_state.df.at[original_idx, "Pago"] = edited_df.at[idx, "Pago"]
+
+    save_data(st.session_state.df)
+    st.success("Atualizado!")
+    st.rerun()
