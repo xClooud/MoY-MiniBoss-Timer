@@ -1,6 +1,7 @@
 import time as tm
 from datetime import datetime, time, timedelta, timezone
 
+import json
 import gspread
 import pandas as pd
 import streamlit as st
@@ -23,12 +24,33 @@ if "time_versions" not in st.session_state:
 
 @st.cache_resource
 def get_google_sheets_client():
-    credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
-    gc = gspread.authorize(credentials)
-    return gc
+    """
+    Cria um cliente do Google Sheets a partir do JSON armazenado no secrets.toml do Streamlit.
+    Funciona mesmo que o private_key tenha múltiplas linhas.
+    """
+    try:
+        # Lê o JSON do secrets.toml
+        json_str = st.secrets["gcp_service_account"]["json"]
+
+        # Converte string para dicionário Python
+        credentials_info = json.loads(json_str)
+
+        # Cria credenciais da conta de serviço
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+
+        # Autoriza o gspread
+        client = gspread.authorize(credentials)
+        return client
+
+    except Exception as e:
+        st.error(f"Erro ao autenticar no Google Sheets: {e}")
+        return None
 
 
 def load_data(force_reload=False):
