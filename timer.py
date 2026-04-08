@@ -9,8 +9,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # ID da sua planilha Google Sheets
-SPREADSHEET_ID = "1jn2HHMZd3SPOwbVnOARqTqoP5OrtdDw5VvYmdcY2WT8"
-WORKSHEET_NAME = "minis"
+SPREADSHEET_ID = "15l7nHq5TmaU-IMQb9T-C07TLaogAEhbM-3GOQGikmkY"
+WORKSHEET_NAME = "Minis"
 
 # Configuração do fuso horário (GMT-3 para Brasil)
 BRASIL_TIMEZONE = timezone(timedelta(hours=-3))
