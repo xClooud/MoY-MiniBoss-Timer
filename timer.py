@@ -7,6 +7,9 @@ import streamlit as st
 import gspread
 from google.oauth2 import service_account
 
+if "time_versions" not in st.session_state:
+    st.session_state.time_versions = {}
+
 # CONFIG
 SPREADSHEET_ID = "15l7nHq5TmaU-IMQb9T-C07TLaogAEhbM-3GOQGikmkY"
 WORKSHEET_NAME = "Minis"  # pode ser "Drops" se quiser
