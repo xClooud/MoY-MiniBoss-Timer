@@ -139,7 +139,7 @@ with st.expander("➕ Inserir novo drop"):
         col1, col2, col3, col4 = st.columns(4)
 
         drop = col1.text_input("Drop *")
-        data = col2.date_input("Data *", value=datetime.today())
+        data = col2.date_input("Data *", value=datetime.today(), format="DD/MM/YYYY")
         membros = col3.text_input("Membros * (separados por vírgula)")
         pago = col4.checkbox("Pago")
 
