@@ -23,8 +23,9 @@ if "time_versions" not in st.session_state:
 
 @st.cache_resource
 def get_google_sheets_client():
+    info = json.loads(st.secrets["gcp_service_account"]["json"])
     credentials = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        info,
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
     gc = gspread.authorize(credentials)
