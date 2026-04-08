@@ -1,40 +1,58 @@
-import time as tm
+import json
+import time as time_module
 from datetime import datetime, time, timedelta, timezone
 
-import json
-import gspread
 import pandas as pd
 import streamlit as st
+import gspread
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
-# ID da sua planilha Google Sheets
-SPREADSHEET_ID = "1QfA-X_MIj5XiQN04LgIDVdKI0BfGrYgErhTLI1fNz88"
-WORKSHEET_NAME = "Minis"
+# CONFIG
+SPREADSHEET_ID = "15l7nHq5TmaU-IMQb9T-C07TLaogAEhbM-3GOQGikmkY"
+WORKSHEET_NAME = "Minis"  # pode ser "Drops" se quiser
 
-# Configuração do fuso horário (GMT-3 para Brasil)
 BRASIL_TIMEZONE = timezone(timedelta(hours=-3))
 
-# Cache da última leitura
-last_read_time = None
+# CACHE GLOBAL
 cached_data = None
-if "time_versions" not in st.session_state:
-    st.session_state.time_versions = {}
+last_read_time = None
 
 
+# 🔥 AUTENTICAÇÃO
 @st.cache_resource
 def get_google_sheets_client():
     info = json.loads(st.secrets["gcp_service_account"]["json"])
+
     credentials = service_account.Credentials.from_service_account_info(
         info,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
     )
-    gc = gspread.authorize(credentials)
-    return gc
+
+    return gspread.authorize(credentials)
 
 
+# 🔥 CRIA ABA AUTOMATICAMENTE
+def get_or_create_worksheet(sh, worksheet_name):
+    abas = [ws.title for ws in sh.worksheets()]
+
+    if worksheet_name not in abas:
+        worksheet = sh.add_worksheet(
+            title=worksheet_name,
+            rows="100",
+            cols="20"
+        )
+        st.warning(f"Aba '{worksheet_name}' criada automaticamente!")
+    else:
+        worksheet = sh.worksheet(worksheet_name)
+
+    return worksheet
+
+
+# 🔥 LOAD DATA
 def load_data(force_reload=False):
-    """Carrega dados do Google Sheets com cache"""
     global last_read_time, cached_data
 
     if not force_reload and cached_data is not None and last_read_time:
@@ -45,11 +63,15 @@ def load_data(force_reload=False):
     try:
         gc = get_google_sheets_client()
         sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.worksheet(WORKSHEET_NAME)
+
+        # 🔥 USANDO FUNÇÃO SEGURA
+        worksheet = get_or_create_worksheet(sh, WORKSHEET_NAME)
+
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
 
         time_columns = ["Nasce às", "Timer", "Prox."]
+
         for col in time_columns:
             if col in df.columns:
                 df[col] = df[col].replace(["", "None", "null", "Null", "NONE"], None)
@@ -78,17 +100,20 @@ def load_data(force_reload=False):
         cached_data = df
         last_read_time = datetime.now()
         return df
+
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
 
+# 🔥 SAVE DATA
 def save_data(df):
-    """Salva dados no Google Sheets apenas quando necessário"""
     try:
         gc = get_google_sheets_client()
         sh = gc.open_by_key(SPREADSHEET_ID)
-        worksheet = sh.worksheet(WORKSHEET_NAME)
+
+        # 🔥 USANDO FUNÇÃO SEGURA
+        worksheet = get_or_create_worksheet(sh, WORKSHEET_NAME)
 
         df_to_save = df.copy()
         time_columns = ["Nasce às", "Timer", "Prox."]
@@ -112,21 +137,25 @@ def save_data(df):
 
         df_to_save = df_to_save.fillna("")
         data = [df_to_save.columns.tolist()] + df_to_save.values.tolist()
+
         worksheet.update(data, value_input_option="USER_ENTERED")
+
         st.success("✅ Alterações salvas com sucesso!")
 
         global cached_data
         cached_data = df.copy()
+
         return True
+
     except Exception as e:
         st.error(f"Erro ao salvar dados: {e}")
         return False
 
 
+# 🔥 CÁLCULOS
 def calcular_segundos_restantes(nasce_as):
-    """Calcula segundos restantes para ordenação"""
     if not nasce_as or not isinstance(nasce_as, time):
-        return 10800  # 3 horas em segundos
+        return 10800
 
     try:
         agora_utc = datetime.now(timezone.utc)
@@ -137,24 +166,23 @@ def calcular_segundos_restantes(nasce_as):
         )
 
         if morte_gmt0 > agora_utc:
-            morte_gmt0 = morte_gmt0 - timedelta(days=1)
+            morte_gmt0 -= timedelta(days=1)
 
         respawn_gmt0 = morte_gmt0 + timedelta(hours=3)
         respawn_local = respawn_gmt0.astimezone(BRASIL_TIMEZONE)
-        diferenca = respawn_local - agora_local
 
-        segundos = int(diferenca.total_seconds())
+        segundos = int((respawn_local - agora_local).total_seconds())
         return segundos if segundos > 0 else 0
-    except Exception as e:
+
+    except:
         return 10800
 
 
 def calcular_tempo_restante_ajustado(nasce_as):
-    """Calcula o tempo restante considerando GMT 0 do jogo e GMT-3 do usuário"""
     segundos = calcular_segundos_restantes(nasce_as)
 
     if segundos <= 0:
-        return "VIVO"  # Retorna "VIVO" quando o tempo acaba
+        return "VIVO"
 
     horas = segundos // 3600
     minutos = (segundos % 3600) // 60
@@ -164,22 +192,24 @@ def calcular_tempo_restante_ajustado(nasce_as):
 
 
 def calcular_horario_respawn_local(nasce_as):
-    """Calcula o horário do respawn no horário local"""
     if not nasce_as or not isinstance(nasce_as, time):
         return "--:--"
 
     try:
         agora_utc = datetime.now(timezone.utc)
+
         morte_gmt0 = datetime.combine(agora_utc.date(), nasce_as).replace(
             tzinfo=timezone.utc
         )
 
         if morte_gmt0 > agora_utc:
-            morte_gmt0 = morte_gmt0 - timedelta(days=1)
+            morte_gmt0 -= timedelta(days=1)
 
         respawn_gmt0 = morte_gmt0 + timedelta(hours=3)
         respawn_local = respawn_gmt0.astimezone(BRASIL_TIMEZONE)
+
         return respawn_local.strftime("%H:%M")
+
     except:
         return "--:--"
 
