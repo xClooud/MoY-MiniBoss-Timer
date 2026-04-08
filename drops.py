@@ -26,30 +26,21 @@ COLUMNS = ["Drop", "Data", "Membros", "Pago"]
 @st.cache_resource
 def get_sheet():
     """Autentica e retorna a worksheet (aba) do Google Sheets."""
-    # No Streamlit Cloud, você deve adicionar os segredos no formato:
-    # st.secrets["gcp_service_account"] = { ... conteúdo do JSON ... }
-    # Ou para testes locais, carregue de um arquivo.
     try:
-        # Tenta carregar do st.secrets (recomendado para produção)
-        cred_dict = st.secrets["gcp_service_account"]
+        # 🔥 Lê o JSON como string e converte para dict
+        info = json.loads(st.secrets["gcp_service_account"]["json"])
+
         creds = Credentials.from_service_account_info(
-            cred_dict,
+            info,
             scopes=[
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive",
             ],
         )
-    except (KeyError, FileNotFoundError):
-        # Fallback para desenvolvimento local: arquivo credentials.json
-        with open("credentials.json", "r") as f:
-            cred_dict = json.load(f)
-        creds = Credentials.from_service_account_info(
-            cred_dict,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
+
+    except Exception as e:
+        st.error(f"Erro ao carregar credenciais: {e}")
+        raise
 
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
