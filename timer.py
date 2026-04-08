@@ -648,5 +648,5 @@ if update_interval > 0:
     st.caption(f"⏰ Próxima atualização: {next_update.strftime('%H:%M:%S')}")
 
     # Usar time.sleep e rerun para atualizar
-    tm.sleep(update_interval)
+    time_module.sleep(update_interval)
     st.rerun()
