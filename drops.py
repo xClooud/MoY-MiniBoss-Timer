@@ -9,7 +9,7 @@ from google.oauth2.service_account import Credentials
 # -------------------------------
 # Configuração da página
 # -------------------------------
-st.set_page_config(page_title="Planilha de Drops - Google Sheets", layout="wide")
+st.set_page_config(page_title="Planilha de Drops", layout="wide")
 st.title("📋 Planilha de Drops")
 
 # -------------------------------
@@ -20,7 +20,7 @@ WORKSHEET_NAME = "Drops"
 COLUMNS = ["Drop", "Data", "Membros", "Pago"]
 
 # -------------------------------
-# Conexão com Google Sheets
+# Conexão
 # -------------------------------
 @st.cache_resource
 def get_client():
@@ -44,51 +44,59 @@ def get_or_create_worksheet():
     abas = [ws.title for ws in sh.worksheets()]
 
     if WORKSHEET_NAME not in abas:
-        worksheet = sh.add_worksheet(title=WORKSHEET_NAME, rows="100", cols="20")
-        worksheet.append_row(COLUMNS)
+        ws = sh.add_worksheet(title=WORKSHEET_NAME, rows="100", cols="20")
+        ws.append_row(COLUMNS)
         st.warning(f"Aba '{WORKSHEET_NAME}' criada automaticamente!")
     else:
-        worksheet = sh.worksheet(WORKSHEET_NAME)
+        ws = sh.worksheet(WORKSHEET_NAME)
 
-        # 🔥 garante cabeçalho
-        values = worksheet.get_all_values()
-        if not values:
-            worksheet.append_row(COLUMNS)
+        if not ws.get_all_values():
+            ws.append_row(COLUMNS)
 
-    return worksheet
+    return ws
 
 
 # -------------------------------
-# DATA
+# LOAD DATA (CORRIGIDO)
 # -------------------------------
 def load_data():
     sheet = get_or_create_worksheet()
-
     records = sheet.get_all_records()
+
     if not records:
         return pd.DataFrame(columns=COLUMNS)
 
     df = pd.DataFrame(records)
 
-    # 🔥 segurança de tipos
-    if "Data" in df.columns:
-        df["Data"] = pd.to_datetime(df["Data"], errors="coerce").dt.date
+    # 🔥 CORREÇÃO DEFINITIVA DE DATA
+    df["Data"] = pd.to_datetime(
+        df["Data"],
+        dayfirst=True,
+        errors="coerce"
+    ).dt.date
 
-    if "Pago" in df.columns:
-        df["Pago"] = df["Pago"].astype(str).str.lower().isin(["true", "1", "yes"])
+    # evita NONE na tela
+    df["Data"] = df["Data"].apply(lambda x: x if pd.notnull(x) else "")
+
+    # bool seguro
+    df["Pago"] = df["Pago"].astype(str).str.lower().isin(["true", "1", "yes"])
 
     return df
 
 
+# -------------------------------
+# SAVE DATA
+# -------------------------------
 def save_data(df):
     sheet = get_or_create_worksheet()
 
     df_to_save = df.copy()
 
-    # 🔥 conversões seguras
+    # 🔥 salva no padrão BR sempre
     df_to_save["Data"] = df_to_save["Data"].apply(
-    lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else ""
-)
+        lambda x: x.strftime("%d/%m/%Y") if pd.notnull(x) else ""
+    )
+
     df_to_save["Pago"] = df_to_save["Pago"].astype(str)
 
     valores = [COLUMNS] + df_to_save.values.tolist()
@@ -102,21 +110,21 @@ def save_data(df):
 # -------------------------------
 def get_all_members(df):
     members = set()
-    for membros_str in df["Membros"].dropna():
-        for m in str(membros_str).split(","):
+    for membros in df["Membros"].dropna():
+        for m in str(membros).split(","):
             m = m.strip()
             if m:
                 members.add(m)
     return sorted(members)
 
 
-def filter_by_members(df, selected_members):
-    if not selected_members:
+def filter_by_members(df, selected):
+    if not selected:
         return df
 
     return df[
         df["Membros"].apply(
-            lambda x: any(m in str(x).split(",") for m in selected_members)
+            lambda x: any(m in str(x).split(",") for m in selected)
         )
     ]
 
@@ -150,9 +158,11 @@ with st.expander("➕ Inserir novo drop"):
                 nova = pd.DataFrame(
                     [[drop, data, membros, pago]], columns=COLUMNS
                 )
+
                 st.session_state.df = pd.concat(
                     [st.session_state.df, nova], ignore_index=True
                 )
+
                 save_data(st.session_state.df)
                 st.success("Salvo!")
                 st.rerun()
@@ -183,13 +193,18 @@ if selected_members:
 
 df_filtered = df_filtered.sort_values(by="Data")
 
+# 🔥 CORREÇÃO INDEX
+df_filtered = df_filtered.reset_index()
+df_indices = df_filtered["index"]
+df_display = df_filtered.drop(columns=["index"])
+
 # -------------------------------
 # TABELA
 # -------------------------------
 st.markdown("### Tabela")
 
 edited_df = st.data_editor(
-    df_filtered,
+    df_display,
     column_config={
         "Drop": st.column_config.TextColumn(disabled=True),
         "Data": st.column_config.DateColumn(disabled=True),
@@ -200,10 +215,13 @@ edited_df = st.data_editor(
     hide_index=True,
 )
 
+# -------------------------------
+# SALVAR ALTERAÇÕES
+# -------------------------------
 if st.button("💾 Salvar alterações"):
-    for idx in edited_df.index:
-        original_idx = df_filtered.index[idx]
-        st.session_state.df.at[original_idx, "Pago"] = edited_df.at[idx, "Pago"]
+    for i in range(len(edited_df)):
+        original_idx = df_indices[i]
+        st.session_state.df.at[original_idx, "Pago"] = edited_df.loc[i, "Pago"]
 
     save_data(st.session_state.df)
     st.success("Atualizado!")
