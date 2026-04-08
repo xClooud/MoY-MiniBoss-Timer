@@ -557,7 +557,23 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                 col1, col2, col3 = st.columns([2, 1, 1])
 
                 with col1:
-                    horario_atual = nasce_as if nasce_as else time(0, 0)
+                    def safe_time_value(value):
+    if isinstance(value, time):
+        return value
+
+    if isinstance(value, datetime):
+        return value.time()
+
+    if isinstance(value, str):
+        try:
+            h, m = value.split(":")[:2]
+            return time(int(h), int(m))
+        except:
+            return None
+
+    return None
+
+horario_atual = safe_time_value(nasce_as)
                     novo_horario = st.time_input(
                         "Morreu às",
                         value=horario_atual,
@@ -646,8 +662,16 @@ st.info("""
 
 # Atualização automática
 if update_interval > 0:
-    next_update = datetime.now() + timedelta(seconds=update_interval)
-    st.caption(f"⏰ Próxima atualização: {next_update.strftime('%H:%M:%S')}")
+    now = datetime.now()
 
-    time_module.sleep(update_interval)
-    st.rerun()
+    if "last_update" not in st.session_state:
+        st.session_state.last_update = now
+
+    elapsed = (now - st.session_state.last_update).total_seconds()
+
+    if elapsed >= update_interval:
+        st.session_state.last_update = now
+        st.rerun()
+
+    next_update = st.session_state.last_update + timedelta(seconds=update_interval)
+    st.caption(f"⏰ Próxima atualização: {next_update.strftime('%H:%M:%S')}")
