@@ -52,6 +52,32 @@ def get_google_sheets_client():
         st.error(f"Erro ao autenticar no Google Sheets: {e}")
         return None
 
+def safe_time_value(value):
+    """
+    Converte valores do DataFrame para datetime.time seguro para Streamlit.
+    Aceita: datetime.time, datetime.datetime, string 'HH:MM', pd.Timestamp
+    Retorna: datetime.time ou None
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+
+    if isinstance(value, time):
+        return value
+
+    if isinstance(value, datetime):
+        return value.time()
+
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime().time()
+
+    if isinstance(value, str):
+        try:
+            h, m = map(int, value.strip().split(":")[:2])
+            return time(hour=h, minute=m)
+        except:
+            return None
+
+    return None
 
 def load_data(force_reload=False):
     """Carrega dados do Google Sheets com cache"""
@@ -472,27 +498,6 @@ mobs_data = mobs_vivos + mobs_nao_vivos
 
 # Layout responsivo com 4 colunas
 mobs_por_linha = 6
-
-def safe_time_value(value):
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return None
-
-     if isinstance(value, time):
-        return value
-
-     if isinstance(value, datetime):
-        return value.time()
-
-    if isinstance(value, pd.Timestamp):
-        return value.to_pydatetime().time()
-
-    if isinstance(value, str):
-        try:
-            h, m = map(int, value.strip().split(":")[:2])
-            return time(hour=h, minute=m)
-        except:
-            return None
-return None
 
 # Organizar mobs em grid
 for i in range(0, len(mobs_data), mobs_por_linha):
