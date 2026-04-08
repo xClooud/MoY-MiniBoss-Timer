@@ -473,6 +473,27 @@ mobs_data = mobs_vivos + mobs_nao_vivos
 # Layout responsivo com 4 colunas
 mobs_por_linha = 6
 
+def safe_time_value(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+
+     if isinstance(value, time):
+        return value
+
+     if isinstance(value, datetime):
+        return value.time()
+
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime().time()
+
+    if isinstance(value, str):
+        try:
+            h, m = map(int, value.strip().split(":")[:2])
+            return time(hour=h, minute=m)
+        except:
+            return None
+return None
+
 # Organizar mobs em grid
 for i in range(0, len(mobs_data), mobs_por_linha):
     cols = st.columns(mobs_por_linha)
@@ -511,28 +532,6 @@ for i in range(0, len(mobs_data), mobs_por_linha):
                 else:
                     timer_class = "timer-green"
                     timer_text = tempo_restante
-
-    def safe_time_value(value):
-        if value is None or (isinstance(value, float) and pd.isna(value)):
-            return None
-
-        if isinstance(value, time):
-            return value
-
-        if isinstance(value, datetime):
-            return value.time()
-
-        if isinstance(value, pd.Timestamp):
-            return value.to_pydatetime().time()
-
-        if isinstance(value, str):
-            try:
-                h, m = map(int, value.strip().split(":")[:2])
-                return time(hour=h, minute=m)
-            except:
-                return None
-
-    return None
                 
                 # Calcular próximo respawn
                 next_respawn = calcular_horario_respawn_local(nasce_as)
