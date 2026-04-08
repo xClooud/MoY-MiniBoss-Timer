@@ -646,10 +646,8 @@ st.info("""
 
 # Atualização automática
 if update_interval > 0:
-    # Mostrar quando será a próxima atualização
     next_update = datetime.now() + timedelta(seconds=update_interval)
     st.caption(f"⏰ Próxima atualização: {next_update.strftime('%H:%M:%S')}")
 
-    # Usar time.sleep e rerun para atualizar
     time_module.sleep(update_interval)
     st.rerun()
